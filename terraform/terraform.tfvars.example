@@ -1,0 +1,4 @@
+aws_region        = "us-east-1"
+project_name      = "inboxray"
+domain_name       = "yourdomain.com"
+forward_to_email  = "your-private@email.com"
