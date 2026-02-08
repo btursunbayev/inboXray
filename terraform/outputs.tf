@@ -15,5 +15,10 @@ output "dynamodb_blocklist_table_name" {
 
 output "lambda_function_name" {
   description = "Name of the Lambda function"
-  value       = ""
+  value       = aws_lambda_function.email_processor.function_name
+}
+
+output "lambda_role_arn" {
+  description = "ARN of the Lambda execution role"
+  value       = aws_iam_role.lambda_execution.arn
 }
