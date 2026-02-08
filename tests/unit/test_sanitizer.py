@@ -14,7 +14,6 @@ class TestEmailSanitizer(unittest.TestCase):
     def setUp(self):
         """Set up test data"""
         self.sanitizer = EmailSanitizer()
-        self.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "test_data")
 
     def test_remove_tracking_pixel_basic(self):
         """Test removal of 1x1 tracking pixel"""

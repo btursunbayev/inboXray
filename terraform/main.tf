@@ -32,6 +32,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw_emails_lifecycle" {
     id     = "delete-after-24-hours"
     status = "Enabled"
 
+    filter {}
+
     expiration {
       days = 1
     }
@@ -53,15 +55,9 @@ resource "aws_dynamodb_table" "aliases" {
   name           = "${var.project_name}-aliases"
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "alias"
-  range_key      = "status"
 
   attribute {
     name = "alias"
-    type = "S"
-  }
-
-  attribute {
-    name = "status"
     type = "S"
   }
 
@@ -227,7 +223,7 @@ resource "aws_lambda_function" "email_processor" {
   filename      = "../lambda_function.zip"
   function_name = "${var.project_name}-email-processor"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "lambda_handler.handler"
+  handler       = "src.handlers.handler.handler"
   runtime       = "python3.11"
   timeout       = 60
   memory_size   = 512

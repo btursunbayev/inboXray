@@ -5,7 +5,7 @@ Lambda function handler for processing incoming emails from S3, sanitizing, and 
 import json
 import os
 
-from src.adapters.aws_adapter import AWSAdapter
+from src.adapters.adapter import AWSAdapter
 from src.core.sanitizer import EmailSanitizer
 
 
