@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  worker:
+    build: .
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - ANALYSIS_QUEUE_URL=${ANALYSIS_QUEUE_URL}
+      - ANALYSIS_RESULTS_TABLE=${ANALYSIS_RESULTS_TABLE:-inboxray-analysis-results}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - inboxray
+
+networks:
+  inboxray:
+    driver: bridge

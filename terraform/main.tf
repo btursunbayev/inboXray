@@ -91,6 +91,42 @@ resource "aws_dynamodb_table" "blocklist" {
   }
 }
 
+# DynamoDB table for analysis results
+resource "aws_dynamodb_table" "analysis_results" {
+  name           = "${var.project_name}-analysis-results"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "message_id"
+  range_key      = "timestamp"
+
+  attribute {
+    name = "message_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+
+  attribute {
+    name = "threat_level"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "ThreatLevelIndex"
+    hash_key        = "threat_level"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "${var.project_name}-analysis-results"
+    Project     = var.project_name
+    Environment = "production"
+  }
+}
+
 # Get current AWS account ID for bucket naming
 data "aws_caller_identity" "current" {}
 
@@ -161,6 +197,14 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "ses:SendRawEmail"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+          "sqs:GetQueueUrl"
+        ]
+        Resource = aws_sqs_queue.email_analysis.arn
       }
     ]
   })
@@ -234,6 +278,8 @@ resource "aws_lambda_function" "email_processor" {
       BLOCKLIST_TABLE  = aws_dynamodb_table.blocklist.name
       FORWARD_TO_EMAIL = var.forward_to_email
       SENDER_EMAIL     = "noreply@${var.domain_name}"
+      ANALYSIS_QUEUE_URL = aws_sqs_queue.email_analysis.url
+      ENABLE_ANALYSIS = "false"
     }
   }
 
@@ -264,4 +310,32 @@ resource "aws_s3_bucket_notification" "email_trigger" {
   }
 
   depends_on = [aws_lambda_permission.allow_s3]
+}
+
+# SQS queue for async email analysis
+resource "aws_sqs_queue" "email_analysis_dlq" {
+  name                      = "${var.project_name}-analysis-dlq"
+  message_retention_seconds = 1209600  # 14 days
+
+  tags = {
+    Name    = "${var.project_name}-analysis-dlq"
+    Project = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "email_analysis" {
+  name                       = "${var.project_name}-analysis-queue"
+  visibility_timeout_seconds = 300  # 5 minutes for agent processing
+  message_retention_seconds  = 345600  # 4 days
+  receive_wait_time_seconds  = 20  # Long polling
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.email_analysis_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name    = "${var.project_name}-analysis-queue"
+    Project = var.project_name
+  }
 }

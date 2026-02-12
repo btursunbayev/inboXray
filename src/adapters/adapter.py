@@ -2,6 +2,7 @@
 AWS service adapters for S3, DynamoDB, and SES
 """
 
+import json
 import os
 from typing import Dict, Optional
 
@@ -16,6 +17,7 @@ class AWSAdapter:
         self.s3 = boto3.client("s3")
         self.dynamodb = boto3.resource("dynamodb")
         self.ses = boto3.client("ses")
+        self.sqs = boto3.client("sqs")
 
         self.aliases_table = self.dynamodb.Table(
             os.environ.get("ALIASES_TABLE", "inboxray-aliases")
@@ -73,6 +75,15 @@ class AWSAdapter:
             Source=from_address,
             Destination={"ToAddresses": [to_address]},
             Message=message,
+        )
+
+        return response
+
+    def push_to_sqs(self, queue_url: str, message_body: Dict) -> Dict:
+        """Push message to SQS queue"""
+        response = self.sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(message_body),
         )
 
         return response

@@ -1,4 +1,4 @@
-.PHONY: help install test lint format clean deploy terraform-init terraform-plan terraform-apply
+.PHONY: help install test lint format clean deploy terraform-init terraform-plan terraform-apply worker-install worker-run
 
 help:
 	@echo "Available commands:"
@@ -11,6 +11,10 @@ help:
 	@echo "  make terraform-plan - Plan Terraform changes"
 	@echo "  make terraform-apply - Apply Terraform changes"
 	@echo "  make deploy        - Deploy Lambda function"
+	@echo ""
+	@echo "Phase 2 Agent Worker:"
+	@echo "  make worker-install - Install agent worker dependencies"
+	@echo "  make worker-run     - Run agent worker locally"
 
 install:
 	pip install -r requirements.txt
@@ -48,3 +52,13 @@ terraform-apply:
 deploy:
 	@echo "Building Lambda deployment package..."
 	./scripts/deploy.sh
+
+worker-install:
+	@echo "Installing agent worker dependencies..."
+	cd worker && pip install -r requirements.txt
+	cd worker && playwright install chromium
+
+worker-run:
+	@echo "Starting agent worker..."
+	@echo "Make sure Ollama is running and environment variables are set"
+	cd worker && python agent_worker.py

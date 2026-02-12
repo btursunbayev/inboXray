@@ -16,6 +16,8 @@ def handler(event, context):
 
     forward_to = os.environ.get("FORWARD_TO_EMAIL")
     sender_email = os.environ.get("SENDER_EMAIL")
+    enable_analysis = os.environ.get("ENABLE_ANALYSIS", "false").lower() == "true"
+    analysis_queue_url = os.environ.get("ANALYSIS_QUEUE_URL")
 
     try:
         for record in event["Records"]:
@@ -34,6 +36,7 @@ def handler(event, context):
                 aws.delete_email_from_s3(bucket, key)
                 continue
 
+            # Phase 1: Forward clean email
             aws.send_email(
                 to_address=forward_to,
                 subject=f"[Sanitized] {email_data['subject']}",
@@ -44,7 +47,23 @@ def handler(event, context):
 
             print(f"Forwarded email to {forward_to}")
 
-            aws.delete_email_from_s3(bucket, key)
+            # Phase 2: Push to SQS for deep analysis (optional)
+            if enable_analysis and analysis_queue_url:
+                analysis_job = {
+                    "s3_bucket": bucket,
+                    "s3_key": key,
+                    "email_from": sender,
+                    "email_to": email_data["to"],
+                    "subject": email_data["subject"],
+                    "date": email_data["date"],
+                    "message_id": email_data["message_id"],
+                }
+                aws.push_to_sqs(analysis_queue_url, analysis_job)
+                print(f"Pushed analysis job to SQS: {email_data['message_id']}")
+
+            # Keep email in S3 if analysis enabled, delete otherwise
+            if not enable_analysis:
+                aws.delete_email_from_s3(bucket, key)
 
         return {"statusCode": 200, "body": json.dumps("Email processed successfully")}
 

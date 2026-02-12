@@ -22,3 +22,23 @@ output "lambda_role_arn" {
   description = "ARN of the Lambda execution role"
   value       = aws_iam_role.lambda_execution.arn
 }
+
+output "analysis_queue_url" {
+  description = "URL of the SQS analysis queue"
+  value       = aws_sqs_queue.email_analysis.url
+}
+
+output "analysis_queue_arn" {
+  description = "ARN of the SQS analysis queue"
+  value       = aws_sqs_queue.email_analysis.arn
+}
+
+output "analysis_dlq_url" {
+  description = "URL of the SQS dead letter queue"
+  value       = aws_sqs_queue.email_analysis_dlq.url
+}
+
+output "analysis_results_table" {
+  description = "Name of the DynamoDB analysis results table"
+  value       = aws_dynamodb_table.analysis_results.name
+}
