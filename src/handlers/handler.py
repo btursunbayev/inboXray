@@ -254,6 +254,20 @@ def _process_record(record: Dict) -> Optional[str]:
             else:
                 email_data["body_text"] = payload
 
+        # Loop guard: drop automated replies and emails sent by this system itself
+        # Auto-Submitted header (RFC 3834): any value other than "no" means auto-generated
+        auto_submitted = msg.get("Auto-Submitted", "no").lower()
+        x_auto = msg.get("X-Auto-Response-Suppress", "")
+        from_addr = email_data["from"].lower()
+        is_self = (
+            SENDER_EMAIL.lower() in from_addr
+            or FORWARD_TO_EMAIL.lower() in from_addr
+        )
+        if auto_submitted != "no" or x_auto or is_self:
+            print(f"Skipping automated/self email: Auto-Submitted={auto_submitted!r} from={email_data['from']}")
+            s3.delete_object(Bucket=bucket, Key=key)
+            return None
+
         if BLOCKLIST_TABLE:
             try:
                 result = dynamodb.Table(BLOCKLIST_TABLE).get_item(

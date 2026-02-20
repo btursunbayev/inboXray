@@ -2,3 +2,4 @@ aws_region        = "us-east-1"
 project_name      = "inboxray"
 domain_name       = "yourdomain.com"
 forward_to_email  = "your-private@email.com"
+api_key           = "replace-with-a-strong-random-secret"  # required: x-api-key header on all API calls

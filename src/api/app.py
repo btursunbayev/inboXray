@@ -6,11 +6,22 @@ from typing import Optional
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
 from mangum import Mangum
 
 app = FastAPI(title="inboXray API")
+
+API_KEY = os.environ.get("API_KEY", "")
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    # /health is exempt so monitoring can probe without credentials
+    if request.url.path != "/health" and API_KEY:
+        if request.headers.get("x-api-key") != API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 dynamodb = boto3.resource(
     "dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1")

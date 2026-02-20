@@ -359,6 +359,8 @@ resource "aws_lambda_function" "email_analyzer" {
   runtime       = "python3.11"
   timeout       = 60
   memory_size   = 512
+  # reserved_concurrent_executions = 5
+  # Desired cap for cost protection
 
   environment {
     variables = {
@@ -475,6 +477,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       ANALYSIS_RESULTS_TABLE = aws_dynamodb_table.analysis_results.name
       BLOCKLIST_TABLE        = aws_dynamodb_table.blocklist.name
+      API_KEY                = var.api_key
     }
   }
 
@@ -491,7 +494,7 @@ resource "aws_apigatewayv2_api" "api" {
   cors_configuration {
     allow_origins = ["*"]
     allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
-    allow_headers = ["Content-Type", "Authorization"]
+    allow_headers = ["Content-Type", "Authorization", "x-api-key"]
   }
 
   tags = {

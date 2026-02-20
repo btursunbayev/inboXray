@@ -19,3 +19,9 @@ variable "forward_to_email" {
   description = "Email address to forward clean emails to"
   type        = string
 }
+
+variable "api_key" {
+  description = "Secret key required in x-api-key header for all API requests"
+  type        = string
+  sensitive   = true
+}
