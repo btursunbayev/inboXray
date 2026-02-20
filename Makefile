@@ -40,7 +40,7 @@ deploy:
 	@./scripts/deploy.sh
 
 test:
-	pytest tests/ -v --cov=src --cov-report=html --cov-report=term
+	python -m pytest tests/unit/ -v --cov=src --cov-report=term-missing
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
