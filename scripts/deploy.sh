@@ -6,7 +6,12 @@ echo "Building Lambda package..."
 rm -rf build lambda_function.zip
 mkdir -p build
 cp -r src build/
-pip install -r requirements.txt -t build/ --quiet
+pip install -r requirements.txt -t build/ \
+  --platform manylinux2014_x86_64 \
+  --python-version 3.11 \
+  --implementation cp \
+  --only-binary=:all: \
+  --quiet
 cd build && zip -r ../lambda_function.zip . -q && cd ..
 rm -rf build
 

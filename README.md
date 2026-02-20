@@ -50,6 +50,40 @@ make deploy
 
 Emails sent to your domain will be analyzed and forwarded to whatever address you configure in `terraform.tfvars`.
 
+## REST API
+
+A read/write API is deployed alongside the pipeline on API Gateway (HTTP API v2) + Lambda.
+
+**Base URL:** `https://4zoeqko6dk.execute-api.us-east-1.amazonaws.com`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/analysis` | List analysis records (paginated) |
+| GET | `/analysis/{message_id}` | Get single record |
+| GET | `/stats` | Threat level counts |
+| POST | `/blocklist` | Add sender to blocklist |
+| DELETE | `/blocklist/{sender}` | Remove sender from blocklist |
+
+**Pagination** — all list endpoints support `?limit=N&cursor=<token>`. The response includes `next_cursor` when more pages exist.
+
+```bash
+# list HIGH threat emails, 5 at a time
+curl "$BASE/analysis?threat_level=HIGH&limit=5"
+
+# next page
+curl "$BASE/analysis?threat_level=HIGH&limit=5&cursor=<next_cursor>"
+
+# aggregate stats
+curl "$BASE/stats"
+# {"threat_counts": {"HIGH": 14, "MEDIUM": 4, "LOW": 6}, "total": 24}
+
+# add to blocklist
+curl -X POST "$BASE/blocklist" \
+  -H "Content-Type: application/json" \
+  -d '{"sender": "spam@evil.com", "reason": "phishing"}'
+```
+
 ## Benchmark
 ```bash
 python3 -m venv venv && source venv/bin/activate

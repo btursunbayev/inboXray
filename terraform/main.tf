@@ -412,3 +412,117 @@ resource "aws_sqs_queue" "email_analysis" {
     Project = var.project_name
   }
 }
+
+# ── REST API ──────────────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "api_lambda_execution" {
+  name = "${var.project_name}-api-lambda-execution"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+
+  tags = {
+    Name    = "${var.project_name}-api-lambda-execution"
+    Project = var.project_name
+  }
+}
+
+resource "aws_iam_role_policy" "api_lambda_policy" {
+  name = "${var.project_name}-api-lambda-policy"
+  role = aws_iam_role.api_lambda_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["dynamodb:Query", "dynamodb:Scan", "dynamodb:GetItem"]
+        Resource = [
+          aws_dynamodb_table.analysis_results.arn,
+          "${aws_dynamodb_table.analysis_results.arn}/index/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+        Resource = aws_dynamodb_table.blocklist.arn
+      },
+    ]
+  })
+}
+
+resource "aws_lambda_function" "api" {
+  filename      = "../lambda_function.zip"
+  function_name = "${var.project_name}-api"
+  role          = aws_iam_role.api_lambda_execution.arn
+  handler       = "src.api.app.handler"
+  runtime       = "python3.11"
+  timeout       = 30
+  memory_size   = 256
+
+  environment {
+    variables = {
+      ANALYSIS_RESULTS_TABLE = aws_dynamodb_table.analysis_results.name
+      BLOCKLIST_TABLE        = aws_dynamodb_table.blocklist.name
+    }
+  }
+
+  tags = {
+    Name    = "${var.project_name}-api"
+    Project = var.project_name
+  }
+}
+
+resource "aws_apigatewayv2_api" "api" {
+  name          = "${var.project_name}-api"
+  protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+    allow_headers = ["Content-Type", "Authorization"]
+  }
+
+  tags = {
+    Name    = "${var.project_name}-api"
+    Project = var.project_name
+  }
+}
+
+resource "aws_apigatewayv2_integration" "api_lambda" {
+  api_id                 = aws_apigatewayv2_api.api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.api.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
+}
