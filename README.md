@@ -19,13 +19,7 @@ SES (yourdomain.com) → S3 (raw storage)
                        SES (forward / warn / block)
 ```
 
-Lambda processes batches of up to 10 emails concurrently. Each email goes through Bedrock for threat analysis (~1.7s median), then gets forwarded clean, prepended with a `[SUSPICIOUS]` warning, or blocked entirely depending on threat level. Everything goes into DynamoDB for the audit log.
-
-Benchmark (10 emails, batch_size=10):
-- Bedrock P50: 1136ms, P95: 2805ms
-- End-to-end P50: 1737ms, P95: 3289ms
-- Concurrent batch wall-time: ~2.2s vs ~15s sequential
-
+Lambda processes batches of up to 10 emails concurrently. Each email goes through Bedrock for threat analysis (~1.7s median), then gets forwarded clean, prepended with a `[SUSPICIOUS]` warning, or blocked entirely depending on threat level. Everything goes into DynamoDB for the audit log
 
 ## Quick Start
 
