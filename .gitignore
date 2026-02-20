@@ -52,6 +52,7 @@ override.tf.json
 .env
 .env.local
 .env.*.local
+worker_env.sh
 
 # IDE
 .vscode/

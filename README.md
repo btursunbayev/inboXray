@@ -1,54 +1,39 @@
 # inboXray
 
-## Overview
-
-inboXray is a two-phase serverless email security platform built on AWS. 
-
-**Phase 1** intercepts incoming emails, removes tracking pixels and sanitizes links before forwarding clean versions to your inbox in under 500ms.
+Serverless email security system. Emails sent to my domain get analyzed by AI for phishing/malware, then forwarded, flagged, or blocked.
 
 ```
-Email
-    ↓
-AWS SES → S3 → Lambda (sanitize) → Forward clean email
-              ↓
-         DynamoDB (aliases, blocklist)
+Sender
+   ↓
+SES (yourdomain.com) → S3 (raw storage)
+                        ↓
+                       SNS
+                        ↓
+                       SQS (batching, retry, DLQ)
+                        ↓
+                      Lambda (concurrent batch processing)
+                        ↓
+            ┌───────────┴──────────┐
+  Bedrock (Claude 3 Haiku)  DynamoDB (audit log)
+                        ↓
+                       SES (forward / warn / block)
 ```
 
-**Phase 2** optionally performs deep threat analysis using AI agents that visit suspicious URLs in a sandboxed browser, capture evidence, and score threat levels using local LLMs.
+Lambda processes batches of up to 10 emails concurrently. Each email goes through Bedrock for threat analysis (~1.7s median), then gets forwarded clean, prepended with a `[SUSPICIOUS]` warning, or blocked entirely depending on threat level. Everything goes into DynamoDB for the audit log.
 
-```
-Lambda detects suspicious email
-         ↓
-     SQS Queue
-         ↓
-   Agent Worker (5-Step Analysis)
-         ↓
-   ┌─────┴─────┬─────────┬──────────┬─────────┐
-   1.          2.        3.         4.        5.
-Extract     LLM Risk   Browser   LLM Final  Save to
-URLs        Check      Visit     Threat    DynamoDB
-         (Ollama)  (Playwright)  Score
-         
-Results: LOW / MEDIUM / HIGH threat level + screenshots
-```
+Benchmark (10 emails, batch_size=10):
+- Bedrock P50: 1136ms, P95: 2805ms
+- End-to-end P50: 1737ms, P95: 3289ms
+- Concurrent batch wall-time: ~2.2s vs ~15s sequential
 
-The system uses AWS SES to receive emails, stores them temporarily in S3, and triggers Lambda functions for sanitization. For deep analysis, messages flow through SQS to an agent worker that combines LangGraph for orchestration, Ollama for local LLM inference, and Playwright for browser automation. Infrastructure is managed with Terraform. This architecture keeps privacy protection fast (<500ms) while allowing compute-intensive threat analysis to run asynchronously (15-40 seconds).
 
 ## Quick Start
 
-### Prerequisites
-
-- AWS account with SES configured
-- Domain for receiving emails
-- Terraform >= 1.0
-- Python 3.11+ (for Phase 2 only)
-- Ollama installed (for Phase 2 only)
-
-### Step 1: Deploy Infrastructure
+Prerequisites: AWS account, domain with SES set up, Terraform >= 1.0, Python 3.11+
 
 Clone the repository
 ```bash
-git clone https://github.com/yourusername/inboXray.git
+git clone https://github.com/btursunbayev/inboXray.git
 cd inboXray
 ```
 
@@ -60,56 +45,17 @@ nano terraform/terraform.tfvars  # Edit with your values
 
 Deploy to AWS
 ```bash
-make terraform-init
-make terraform-apply
+make deploy
 ```
 
-Now emails sent to `anything@inbox.yourdomain.com` will be sanitized and forwarded.
+Emails sent to your domain will be analyzed and forwarded to whatever address you configure in `terraform.tfvars`.
 
-### Step 2: Enable Phase 2
-
-Install Ollama
+## Benchmark
 ```bash
-curl -fsSL https://ollama.com/install.sh | sh
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python scripts/benchmark.py --count 10
 ```
-
-Download Llama 3.1 model (4.9GB)
-```bash
-ollama pull llama3.1
-```
-
-Start Ollama server (keep running in separate terminal)
-```bash
-ollama serve
-```
-
-Set up Python environment and install worker dependencies
-```bash
-python -m venv venv
-source venv/bin/activate
-make worker-install
-```
-
-Set environment variables from Terraform outputs
-```bash
-export AWS_REGION=us-east-1
-export ANALYSIS_QUEUE_URL=$(terraform -chdir=terraform output -raw analysis_queue_url)
-export ANALYSIS_RESULTS_TABLE=$(terraform -chdir=terraform output -raw analysis_results_table)
-export OLLAMA_HOST=http://localhost:11434
-```
-
-
-Enable Phase 2 analysis in Lambda (edit terraform.tfvars: set enable_analysis = true)
-```bash
-make terraform-apply
-```
-
-Start the agent worker
-```bash
-make worker-run
-```
-
-Now suspicious emails will be analyzed automatically.
 
 ---
 Maintained by [**Bekmukhamed Tursunbayev**](https://btursunbayev.com)  

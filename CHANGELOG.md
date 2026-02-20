@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-02-19 - Concurrent batch processing + Bedrock integration
+
+### Added
+- Amazon Bedrock (Claude 3 Haiku) replaced Ollama for threat analysis
+- `ThreadPoolExecutor` concurrent processing — all records in a batch run in parallel (I/O-bound: S3, Bedrock, SES)
+- `batchItemFailures` partial batch failure — failed messages retry individually, not the whole batch
+- Structured metric logging (`METRIC name value tags`) for CloudWatch Logs Insights P50/P95/P99 queries
+- `scripts/benchmark.py` - injects synthetic emails into SQS, waits for drain, queries CWL Insights for latency stats
+- `deploy.sh` - deploys infrastructure
+
+### Changed
+- SQS batch_size 1 → 10, added 5s batching window
+- Lambda IAM: added `s3:ListBucket` permission
+
 ## 2026-02-09 - Phase 2: AI Agent Worker
 
 ### Added

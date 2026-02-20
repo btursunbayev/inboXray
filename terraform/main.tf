@@ -174,9 +174,13 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:ListBucket"
         ]
-        Resource = "${aws_s3_bucket.raw_emails.arn}/*"
+        Resource = [
+          "${aws_s3_bucket.raw_emails.arn}",
+          "${aws_s3_bucket.raw_emails.arn}/*"
+        ]
       },
       {
         Effect = "Allow"
@@ -202,9 +206,27 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "sqs:SendMessage",
-          "sqs:GetQueueUrl"
+          "sqs:GetQueueUrl",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
         ]
         Resource = aws_sqs_queue.email_analysis.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem"
+        ]
+        Resource = aws_dynamodb_table.analysis_results.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ]
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
       }
     ]
   })
@@ -220,7 +242,72 @@ resource "aws_ses_active_receipt_rule_set" "main" {
   rule_set_name = aws_ses_receipt_rule_set.main.rule_set_name
 }
 
-# SES receipt rule to save emails to S3
+# SNS topic for SES notifications
+resource "aws_sns_topic" "ses_notifications" {
+  name = "${var.project_name}-ses-notifications"
+
+  tags = {
+    Name    = "${var.project_name}-ses-notifications"
+    Project = var.project_name
+  }
+}
+
+# SNS topic policy to allow SES to publish
+resource "aws_sns_topic_policy" "ses_publish" {
+  arn = aws_sns_topic.ses_notifications.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "ses.amazonaws.com"
+        }
+        Action   = "SNS:Publish"
+        Resource = aws_sns_topic.ses_notifications.arn
+        Condition = {
+          StringEquals = {
+            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+# SNS subscription to SQS
+resource "aws_sns_topic_subscription" "ses_to_sqs" {
+  topic_arn = aws_sns_topic.ses_notifications.arn
+  protocol  = "sqs"
+  endpoint  = aws_sqs_queue.email_analysis.arn
+}
+
+# SQS queue policy to allow SNS to send messages
+resource "aws_sqs_queue_policy" "allow_sns" {
+  queue_url = aws_sqs_queue.email_analysis.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "sns.amazonaws.com"
+        }
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.email_analysis.arn
+        Condition = {
+          ArnEquals = {
+            "aws:SourceArn" = aws_sns_topic.ses_notifications.arn
+          }
+        }
+      }
+    ]
+  })
+}
+
+# SES receipt rule to save emails to S3 and notify SNS
 resource "aws_ses_receipt_rule" "save_to_s3" {
   name          = "${var.project_name}-save-to-s3"
   rule_set_name = aws_ses_receipt_rule_set.main.rule_set_name
@@ -232,6 +319,7 @@ resource "aws_ses_receipt_rule" "save_to_s3" {
     bucket_name       = aws_s3_bucket.raw_emails.bucket
     object_key_prefix = "incoming/"
     position          = 1
+    topic_arn         = aws_sns_topic.ses_notifications.arn
   }
 
   depends_on = [aws_s3_bucket_policy.ses_write]
@@ -262,54 +350,39 @@ resource "aws_s3_bucket_policy" "ses_write" {
   })
 }
 
-# Lambda function for email processing
-resource "aws_lambda_function" "email_processor" {
+# Lambda function for email analysis with Bedrock
+resource "aws_lambda_function" "email_analyzer" {
   filename      = "../lambda_function.zip"
-  function_name = "${var.project_name}-email-processor"
+  function_name = "${var.project_name}-email-analyzer"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "src.handlers.handler.handler"
+  handler       = "src.handlers.handler.lambda_handler"
   runtime       = "python3.11"
   timeout       = 60
   memory_size   = 512
 
   environment {
     variables = {
-      ALIASES_TABLE    = aws_dynamodb_table.aliases.name
-      BLOCKLIST_TABLE  = aws_dynamodb_table.blocklist.name
-      FORWARD_TO_EMAIL = var.forward_to_email
-      SENDER_EMAIL     = "noreply@${var.domain_name}"
-      ANALYSIS_QUEUE_URL = aws_sqs_queue.email_analysis.url
-      ENABLE_ANALYSIS = "false"
+      FORWARD_TO_EMAIL        = var.forward_to_email
+      SENDER_EMAIL            = "noreply@${var.domain_name}"
+      ANALYSIS_RESULTS_TABLE  = aws_dynamodb_table.analysis_results.name
+      BLOCKLIST_TABLE         = aws_dynamodb_table.blocklist.name
     }
   }
 
   tags = {
-    Name    = "${var.project_name}-email-processor"
+    Name    = "${var.project_name}-email-analyzer"
     Project = var.project_name
   }
 }
 
-# Lambda permission for S3 to invoke the function
-resource "aws_lambda_permission" "allow_s3" {
-  statement_id  = "AllowS3Invoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.email_processor.function_name
-  principal     = "s3.amazonaws.com"
-  source_arn    = aws_s3_bucket.raw_emails.arn
-}
-
-# S3 bucket notification to trigger Lambda
-resource "aws_s3_bucket_notification" "email_trigger" {
-  bucket = aws_s3_bucket.raw_emails.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.email_processor.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "incoming/"
-    filter_suffix       = ""
-  }
-
-  depends_on = [aws_lambda_permission.allow_s3]
+# Lambda event source mapping from SQS
+resource "aws_lambda_event_source_mapping" "sqs_to_lambda" {
+  event_source_arn                   = aws_sqs_queue.email_analysis.arn
+  function_name                      = aws_lambda_function.email_analyzer.arn
+  batch_size                         = 10
+  maximum_batching_window_in_seconds = 5
+  enabled                            = true
+  function_response_types            = ["ReportBatchItemFailures"]
 }
 
 # SQS queue for async email analysis

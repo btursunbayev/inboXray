@@ -1,34 +1,22 @@
 #!/bin/bash
-# Deploy Lambda function
-
 set -e
 
-echo "Creating Lambda deployment package..."
+echo "Building Lambda package..."
 
-# Clean previous build
 rm -rf build lambda_function.zip
-
-# Create build directory
 mkdir -p build
-
-# Copy source code
-echo "Copying source code..."
 cp -r src build/
-
-# Install dependencies to build directory
-echo "Installing dependencies..."
-pip install boto3 -t build/ --quiet
-
-# Create ZIP package
-echo "Creating ZIP..."
-cd build
-zip -r ../lambda_function.zip . -q
-cd ..
-
-# Cleanup
+pip install -r requirements.txt -t build/ --quiet
+cd build && zip -r ../lambda_function.zip . -q && cd ..
 rm -rf build
 
-echo "✓ Deployment package ready: lambda_function.zip"
-echo "  Size: $(du -h lambda_function.zip | cut -f1)"
+echo "Package ready: $(du -h lambda_function.zip | cut -f1)"
 echo ""
-echo "Next: cd terraform && terraform apply"
+echo "Deploying infrastructure..."
+
+cd terraform
+terraform init -input=false
+terraform apply -input=false -auto-approve
+
+echo ""
+echo "Done."
